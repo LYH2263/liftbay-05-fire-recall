@@ -14,6 +14,7 @@ from app.schemas.schemas import (
     LogOut,
 )
 from app.services.dispatch_engine import CallRequest, CarState, congestion_by_floor, pick_car
+from app.services.recall import FROZEN, activate_recall, release_recall
 
 api_router = APIRouter()
 
@@ -26,6 +27,29 @@ def health():
 @api_router.get("/buildings", response_model=list[BuildingOut])
 def buildings(db: Session = Depends(get_db)):
     return db.scalars(select(Building).order_by(Building.id)).all()
+
+
+def _get_building_or_404(db: Session, building_id: int) -> Building:
+    b = db.get(Building, building_id)
+    if not b:
+        raise HTTPException(404, "楼栋不存在")
+    return b
+
+
+@api_router.post("/buildings/{building_id}/recall", response_model=BuildingOut)
+def enter_recall(building_id: int, db: Session = Depends(get_db)):
+    b = _get_building_or_404(db, building_id)
+    activate_recall(db, b)
+    db.refresh(b)
+    return b
+
+
+@api_router.post("/buildings/{building_id}/recall/release", response_model=BuildingOut)
+def exit_recall(building_id: int, db: Session = Depends(get_db)):
+    b = _get_building_or_404(db, building_id)
+    release_recall(db, b)
+    db.refresh(b)
+    return b
 
 
 @api_router.get("/cars", response_model=list[CarOut])
@@ -43,6 +67,8 @@ def create_call(body: CallCreate, db: Session = Depends(get_db)):
     b = db.get(Building, body.building_id)
     if not b:
         raise HTTPException(404, "楼栋不存在")
+    if b.recall_active:
+        raise HTTPException(409, "消防召回中，暂停登记呼梯")
     if body.floor > b.floors:
         raise HTTPException(400, "楼层超出")
     if body.direction not in ("up", "down"):
@@ -64,6 +90,11 @@ def dispatch(body: DispatchRequest, db: Session = Depends(get_db)):
     ticket = db.get(CallTicket, body.call_id)
     if not ticket:
         raise HTTPException(404, "呼梯不存在")
+    if ticket.status == FROZEN:
+        db.add(DispatchLog(call_id=ticket.id, car_id=None, detail="消防召回中，冻结呼梯禁止派工"))
+        db.commit()
+        db.refresh(ticket)
+        raise HTTPException(409, "消防召回中，冻结呼梯不可派工")
     if ticket.status != "waiting":
         raise HTTPException(400, "呼梯已处理")
     car_rows = db.scalars(

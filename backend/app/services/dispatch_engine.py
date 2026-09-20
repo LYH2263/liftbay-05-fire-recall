@@ -71,3 +71,12 @@ def congestion_by_floor(calls: list[CallRequest]) -> dict[int, int]:
     for c in calls:
         counts[c.floor] = counts.get(c.floor, 0) + c.passengers
     return counts
+
+
+def direction_to(from_floor: int, to_floor: int) -> str:
+    """Direction a car at from_floor must take to head to to_floor."""
+    if to_floor > from_floor:
+        return "up"
+    if to_floor < from_floor:
+        return "down"
+    return "idle"

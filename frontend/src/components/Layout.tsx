@@ -13,13 +13,15 @@ const floorNav = [
 
 type Car = { id: number; label: string; floor: number; direction: string; load: number; capacity: number };
 type Call = { id: number; floor: number; status: string };
-type B = { floors: number; name?: string };
+type B = { floors: number; name?: string; recall_floor: number; recall_active: boolean };
 
 export default function Layout() {
   const [cars, setCars] = useState<Car[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
   const [floors, setFloors] = useState(12);
   const [bName, setBName] = useState("LiftBay");
+  const [recallFloor, setRecallFloor] = useState(1);
+  const [recallActive, setRecallActive] = useState(false);
 
   useEffect(() => {
     const load = () => {
@@ -29,6 +31,8 @@ export default function Layout() {
         if (bs[0]) {
           setFloors(bs[0].floors);
           if (bs[0].name) setBName(bs[0].name);
+          setRecallFloor(bs[0].recall_floor);
+          setRecallActive(bs[0].recall_active);
         }
       }).catch(() => {});
     };
@@ -49,7 +53,8 @@ export default function Layout() {
       <aside className="elevation-column" aria-label="井道立面">
         <div className="elevation-header">
           <div className="elevation-title">{bName}</div>
-          <div className="elevation-sub">井道立面 · {floors}F</div>
+          <div className="elevation-sub">井道立面 · {floors}F · 召回层 {recallFloor}F</div>
+          {recallActive && <div className="recall-badge recall-badge--on recall-badge--shaft">🚒 消防召回中</div>}
         </div>
 
         <div className="shaft-edge-nav">
@@ -90,12 +95,13 @@ export default function Layout() {
                 {levels.map((f) => {
                   const here = car.floor === f;
                   const call = callFloors.has(f);
+                  const recallFloorHere = f === recallFloor;
                   return (
                     <div
                       key={f}
-                      className={`elev-floor${here ? " elev-floor--car" : ""}${call ? " elev-floor--call" : ""}`}
+                      className={`elev-floor${here ? " elev-floor--car" : ""}${call ? " elev-floor--call" : ""}${recallFloorHere ? " elev-floor--recall" : ""}`}
                     >
-                      <span className="elev-floor-num">{f}</span>
+                      <span className="elev-floor-num">{f}{recallFloorHere && "★"}</span>
                       {here && (
                         <span className="elev-car-glyph" title={car.direction}>
                           {car.direction === "down" ? "▼" : car.direction === "up" ? "▲" : "●"}
@@ -110,7 +116,9 @@ export default function Layout() {
         </div>
 
         <div className="elevation-footer">
-          待派呼梯 <strong>{waiting}</strong>
+          {recallActive
+            ? <>消防召回中 · 冻结呼梯 <strong>{calls.filter((c) => c.status === "frozen").length}</strong></>
+            : <>待派呼梯 <strong>{waiting}</strong></>}
         </div>
       </aside>
 

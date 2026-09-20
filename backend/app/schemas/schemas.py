@@ -6,6 +6,8 @@ class BuildingOut(BaseModel):
     id: int
     name: str
     floors: int
+    recall_floor: int
+    recall_active: bool
     model_config = {"from_attributes": True}
 
 
