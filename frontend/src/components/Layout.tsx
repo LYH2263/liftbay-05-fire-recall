@@ -13,13 +13,14 @@ const floorNav = [
 
 type Car = { id: number; label: string; floor: number; direction: string; load: number; capacity: number };
 type Call = { id: number; floor: number; status: string };
-type B = { floors: number; name?: string };
+type B = { floors: number; name?: string; recall_active?: boolean; recall_floor?: number };
 
 export default function Layout() {
   const [cars, setCars] = useState<Car[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
   const [floors, setFloors] = useState(12);
   const [bName, setBName] = useState("LiftBay");
+  const [recall, setRecall] = useState<{ active: boolean; floor: number }>({ active: false, floor: 1 });
 
   useEffect(() => {
     const load = () => {
@@ -29,6 +30,7 @@ export default function Layout() {
         if (bs[0]) {
           setFloors(bs[0].floors);
           if (bs[0].name) setBName(bs[0].name);
+          setRecall({ active: !!bs[0].recall_active, floor: bs[0].recall_floor ?? 1 });
         }
       }).catch(() => {});
     };
@@ -43,12 +45,16 @@ export default function Layout() {
   );
   const levels = useMemo(() => Array.from({ length: floors }, (_, i) => floors - i), [floors]);
   const waiting = calls.filter((c) => c.status === "waiting").length;
+  const frozen = calls.filter((c) => c.status === "frozen").length;
 
   return (
     <div className="shaft-shell">
       <aside className="elevation-column" aria-label="井道立面">
         <div className="elevation-header">
-          <div className="elevation-title">{bName}</div>
+          <div className="elevation-title">
+            {bName}
+            {recall.active && <span className="recall-badge">召回 {recall.floor}F</span>}
+          </div>
           <div className="elevation-sub">井道立面 · {floors}F</div>
         </div>
 
@@ -111,6 +117,7 @@ export default function Layout() {
 
         <div className="elevation-footer">
           待派呼梯 <strong>{waiting}</strong>
+          {recall.active && <> · 冻结 <strong className="recall-frozen">{frozen}</strong></>}
         </div>
       </aside>
 

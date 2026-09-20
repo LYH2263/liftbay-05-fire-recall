@@ -6,6 +6,8 @@ class BuildingOut(BaseModel):
     id: int
     name: str
     floors: int
+    recall_floor: int
+    recall_active: bool
     model_config = {"from_attributes": True}
 
 
@@ -44,9 +46,13 @@ class DispatchRequest(BaseModel):
     call_id: int
 
 
+class RecallRequest(BaseModel):
+    active: bool
+
+
 class LogOut(BaseModel):
     id: int
-    call_id: int
+    call_id: int | None
     car_id: int | None
     detail: str
     created_at: datetime

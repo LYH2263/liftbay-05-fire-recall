@@ -12,8 +12,15 @@ from app.schemas.schemas import (
     CongestionFloor,
     DispatchRequest,
     LogOut,
+    RecallRequest,
 )
-from app.services.dispatch_engine import CallRequest, CarState, congestion_by_floor, pick_car
+from app.services.dispatch_engine import (
+    CallRequest,
+    CarState,
+    congestion_by_floor,
+    pick_car,
+    recall_car_state,
+)
 
 api_router = APIRouter()
 
@@ -26,6 +33,60 @@ def health():
 @api_router.get("/buildings", response_model=list[BuildingOut])
 def buildings(db: Session = Depends(get_db)):
     return db.scalars(select(Building).order_by(Building.id)).all()
+
+
+@api_router.post("/buildings/{building_id}/recall", response_model=BuildingOut)
+def set_recall(building_id: int, body: RecallRequest, db: Session = Depends(get_db)):
+    b = db.get(Building, building_id)
+    if not b:
+        raise HTTPException(404, "楼栋不存在")
+    if body.active == b.recall_active:
+        return b  # 幂等：重复进入/解除不产生副作用
+    if body.active:
+        waiting = db.scalars(
+            select(CallTicket).where(
+                CallTicket.building_id == b.id, CallTicket.status == "waiting"
+            )
+        ).all()
+        for t in waiting:
+            t.status = "frozen"
+            db.add(DispatchLog(call_id=t.id, car_id=None, detail="消防召回：呼梯冻结"))
+        car_rows = db.scalars(
+            select(ElevatorCar).where(ElevatorCar.building_id == b.id)
+        ).all()
+        for c in car_rows:
+            recalled = recall_car_state(
+                CarState(c.id, c.floor, c.direction, c.load, c.capacity), b.recall_floor
+            )
+            c.floor, c.direction, c.load = recalled.floor, recalled.direction, recalled.load
+        b.recall_active = True
+        db.add(
+            DispatchLog(
+                call_id=None,
+                car_id=None,
+                detail=f"消防召回启动：冻结 {len(waiting)} 单，{len(car_rows)} 台轿厢空载驶向 {b.recall_floor}F",
+            )
+        )
+    else:
+        frozen = db.scalars(
+            select(CallTicket).where(
+                CallTicket.building_id == b.id, CallTicket.status == "frozen"
+            )
+        ).all()
+        for t in frozen:
+            t.status = "waiting"
+            db.add(DispatchLog(call_id=t.id, car_id=None, detail="解除召回：恢复待派"))
+        b.recall_active = False
+        db.add(
+            DispatchLog(
+                call_id=None,
+                car_id=None,
+                detail=f"解除消防召回：恢复 {len(frozen)} 单待派，轿厢留守 {b.recall_floor}F 空载",
+            )
+        )
+    db.commit()
+    db.refresh(b)
+    return b
 
 
 @api_router.get("/cars", response_model=list[CarOut])
@@ -43,6 +104,8 @@ def create_call(body: CallCreate, db: Session = Depends(get_db)):
     b = db.get(Building, body.building_id)
     if not b:
         raise HTTPException(404, "楼栋不存在")
+    if b.recall_active:
+        raise HTTPException(409, "消防召回中，禁止登记呼梯")
     if body.floor > b.floors:
         raise HTTPException(400, "楼层超出")
     if body.direction not in ("up", "down"):
@@ -64,15 +127,22 @@ def dispatch(body: DispatchRequest, db: Session = Depends(get_db)):
     ticket = db.get(CallTicket, body.call_id)
     if not ticket:
         raise HTTPException(404, "呼梯不存在")
+    if ticket.status == "frozen":
+        db.add(DispatchLog(call_id=ticket.id, car_id=None, detail="消防召回中，冻结单拒绝派工"))
+        db.commit()
+        raise HTTPException(409, "消防召回中，呼梯已冻结")
     if ticket.status != "waiting":
         raise HTTPException(400, "呼梯已处理")
+    building = db.get(Building, ticket.building_id)
+    if building and building.recall_active:
+        raise HTTPException(409, "消防召回中，禁止派工")
     car_rows = db.scalars(
         select(ElevatorCar).where(ElevatorCar.building_id == ticket.building_id)
     ).all()
     cars = [
         CarState(c.id, c.floor, c.direction, c.load, c.capacity) for c in car_rows
     ]
-    call = CallRequest(ticket.id, ticket.floor, ticket.direction, ticket.passengers)
+    call = CallRequest(ticket.id, ticket.floor, ticket.direction, ticket.passengers, ticket.status)
     best = pick_car(cars, call)
     if best is None:
         db.add(DispatchLog(call_id=ticket.id, car_id=None, detail="全部轿厢满员，拒绝派工"))
@@ -107,9 +177,11 @@ def replay(db: Session = Depends(get_db)):
 
 @api_router.get("/congestion", response_model=list[CongestionFloor])
 def congestion(db: Session = Depends(get_db)):
-    waiting = db.scalars(select(CallTicket).where(CallTicket.status == "waiting")).all()
+    open_calls = db.scalars(
+        select(CallTicket).where(CallTicket.status.in_(["waiting", "frozen"]))
+    ).all()
     counts = congestion_by_floor(
-        [CallRequest(c.id, c.floor, c.direction, c.passengers) for c in waiting]
+        [CallRequest(c.id, c.floor, c.direction, c.passengers, c.status) for c in open_calls]
     )
     return [
         CongestionFloor(floor=f, passengers=p)

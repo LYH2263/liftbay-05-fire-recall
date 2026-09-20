@@ -1,4 +1,8 @@
-"""Elevator dispatch: same-direction preference + floor distance; reject if car full."""
+"""Elevator dispatch: same-direction preference + floor distance; reject if car full.
+
+Fire recall: cars dump load and head to the building recall floor; frozen calls
+are refused by dispatch and excluded from congestion.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +24,7 @@ class CallRequest:
     floor: int
     direction: str  # desired travel after boarding
     passengers: int = 1
+    status: str = "waiting"  # "waiting" | "frozen" | "assigned" | "rejected"
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,8 @@ def score_car(car: CarState, call: CallRequest) -> ScoreResult:
 
 
 def pick_car(cars: list[CarState], call: CallRequest) -> ScoreResult | None:
+    if call.status != "waiting":
+        return None  # 冻结/已处理的呼梯不派工
     results = [score_car(c, call) for c in cars]
     accepted = [r for r in results if r.accepted]
     if not accepted:
@@ -66,8 +73,30 @@ def pick_car(cars: list[CarState], call: CallRequest) -> ScoreResult | None:
     return max(accepted, key=lambda r: r.score)
 
 
+def recall_direction(car_floor: int, recall_floor: int) -> str:
+    """Direction the car must travel to reach the recall floor."""
+    if car_floor < recall_floor:
+        return "up"
+    if car_floor > recall_floor:
+        return "down"
+    return "idle"
+
+
+def recall_car_state(car: CarState, recall_floor: int) -> CarState:
+    """Car state after fire recall: unloaded, at the recall floor."""
+    return CarState(
+        car_id=car.car_id,
+        floor=recall_floor,
+        direction=recall_direction(car.floor, recall_floor),
+        load=0,
+        capacity=car.capacity,
+    )
+
+
 def congestion_by_floor(calls: list[CallRequest]) -> dict[int, int]:
     counts: dict[int, int] = {}
     for c in calls:
+        if c.status != "waiting":
+            continue  # 冻结单不计入拥堵
         counts[c.floor] = counts.get(c.floor, 0) + c.passengers
     return counts

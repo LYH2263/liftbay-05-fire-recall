@@ -7,7 +7,7 @@ from app.models.models import Building, CallTicket, DispatchLog, ElevatorCar
 def seed_if_empty(db: Session) -> None:
     if db.scalar(select(Building.id).limit(1)):
         return
-    b = Building(name="研发中心 A 座", floors=18)
+    b = Building(name="研发中心 A 座", floors=18, recall_floor=1)
     db.add(b)
     db.flush()
     cars = [

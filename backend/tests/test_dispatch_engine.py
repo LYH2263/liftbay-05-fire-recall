@@ -1,4 +1,12 @@
-from app.services.dispatch_engine import CallRequest, CarState, pick_car, score_car
+from app.services.dispatch_engine import (
+    CallRequest,
+    CarState,
+    congestion_by_floor,
+    pick_car,
+    recall_car_state,
+    recall_direction,
+    score_car,
+)
 
 
 def test_reject_when_full():
@@ -29,3 +37,33 @@ def test_closer_idle_wins_when_opposite():
     best = pick_car(cars, call)
     assert best is not None
     assert best.car_id == 2
+
+
+def test_frozen_call_not_dispatched():
+    cars = [CarState(1, 1, "idle", load=0, capacity=10)]
+    call = CallRequest(7, 3, "up", 1, status="frozen")
+    assert pick_car(cars, call) is None
+
+
+def test_recall_direction_toward_recall_floor():
+    assert recall_direction(6, 1) == "down"
+    assert recall_direction(1, 1) == "idle"
+    assert recall_direction(2, 5) == "up"
+
+
+def test_recall_car_state_unloads_and_moves():
+    car = CarState(1, 9, "up", load=5, capacity=10)
+    r = recall_car_state(car, 1)
+    assert r.floor == 1
+    assert r.load == 0
+    assert r.direction == "down"
+    assert r.capacity == 10
+
+
+def test_congestion_ignores_frozen():
+    calls = [
+        CallRequest(1, 5, "up", 2, status="waiting"),
+        CallRequest(2, 5, "up", 3, status="frozen"),
+        CallRequest(3, 7, "down", 1, status="frozen"),
+    ]
+    assert congestion_by_floor(calls) == {5: 2}

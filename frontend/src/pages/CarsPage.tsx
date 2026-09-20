@@ -2,20 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 type Car = { id: number; label: string; floor: number; direction: string; load: number; capacity: number };
 type Call = { id: number; floor: number; status: string };
-type B = { floors: number };
+type B = { floors: number; recall_floor: number; recall_active: boolean };
 export default function CarsPage() {
   const [cars, setCars] = useState<Car[]>([]);
   const [calls, setCalls] = useState<Call[]>([]);
-  const [floors, setFloors] = useState(18);
+  const [building, setBuilding] = useState<B | null>(null);
   useEffect(() => {
     api<Car[]>("/cars").then(setCars);
     api<Call[]>("/calls").then(setCalls);
-    api<B[]>("/buildings").then(bs => { if (bs[0]) setFloors(bs[0].floors); });
+    api<B[]>("/buildings").then(bs => { if (bs[0]) setBuilding(bs[0]); });
   }, []);
+  const floors = building?.floors ?? 18;
   const callFloors = useMemo(() => new Set(calls.filter(c => c.status === "waiting").map(c => c.floor)), [calls]);
   const levels = useMemo(() => Array.from({ length: floors }, (_, i) => i + 1), [floors]);
   return (<>
     <h2>轿厢井道</h2>
+    {building?.recall_active && <div className="recall-banner">消防召回中 · 全部轿厢空载驶至 {building.recall_floor}F</div>}
     <div className="shaft-wrap">
       {cars.map(car => (
         <div className="shaft" key={car.id}>

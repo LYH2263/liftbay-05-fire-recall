@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,6 +11,8 @@ class Building(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True)
     floors: Mapped[int] = mapped_column(Integer)
+    recall_floor: Mapped[int] = mapped_column(Integer, default=1)
+    recall_active: Mapped[bool] = mapped_column(Boolean, default=False)
     cars: Mapped[list["ElevatorCar"]] = relationship(back_populates="building")
 
 
@@ -42,7 +44,7 @@ class CallTicket(Base):
 class DispatchLog(Base):
     __tablename__ = "dispatch_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    call_id: Mapped[int] = mapped_column(ForeignKey("call_tickets.id"))
+    call_id: Mapped[int | None] = mapped_column(ForeignKey("call_tickets.id"), nullable=True)
     car_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     detail: Mapped[str] = mapped_column(String(240))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
